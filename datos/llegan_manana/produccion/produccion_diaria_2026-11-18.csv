@@ -1,0 +1,31 @@
+pozo;fecha;horas_operacion;aceite_bbl;agua_bbl;gas_kpc;reportado_por;observaciones
+MOR-009;2026-11-18;24;645.22;2821,73;56.51;Supervisor Morichal;
+ sam-5 ;2026-11-18;26;457.04;1193.13;62,91;Supervisor Saman;
+MOR-004;2026-11-18;24;373.51;1176.55;47.01;Supervisor Morichal;
+MOR-003;2026-11-18;24;643.31;2167.56;82.92;Supervisor Morichal;Pozo con arena, se reduce frecuencia
+SAM-003;2026-11-18;24;384.83;2425.49;45.03;Supervisor Saman;
+GAR-004;2026-11-18;24;345.59;1254.34;37.02;Supervisor Garcero;
+GAR-003;2026-11-18;24;673.96;1977.20;72.17;Supervisor Garcero;
+SAM-004;2026-11-18;24;352.72;686.95;48.34;Supervisor Saman;
+MOR-002;2026-11-18;0;0.00;0.00;0.00;Supervisor Morichal;
+SAM-006;2026-11-18;24;652.74;2761.91;56.00;Supervisor Saman;
+SAMAN 1;2026-11-18;24;470,44;1662.10;60.27;Supervisor Saman;
+GARCERO 6;2026-11-18;24;441.10;5335.44;54.98;Supervisor Garcero;
+GARCERO 8;2026-11-18;24;411.67;776.49;48.94;Supervisor Garcero;
+MOR-010;2026-11-18;24;566.46;4125,59;50.17;Supervisor Morichal;
+GAR-005;2026-11-18;24;326.31;2787.22;26.79;Supervisor Garcero;
+MOR-007;2026-11-18;24;421.95;873.02;36.62;Supervisor Morichal;
+SAM-004;2026-11-18;24;352.72;686.95;48.34;Supervisor Saman;
+ gar-2 ;2026-11-18;24;284.47;1777.37;35.14;Supervisor Garcero;
+MOR-099;2026-11-18;24;566.46;4125,59;50.17;Supervisor Morichal;
+GARCERO 1;2026-11-18;24;457.96;2148.69;52.79;Supervisor Garcero;
+MOR-005;2026-11-18;24;508.09;2399.32;60,19;Supervisor Morichal;
+MORICHAL 6;2026-11-18;24;226.75;1037.05;22.85;Supervisor Morichal;
+MOR-012;2026-11-18;24;572.74;7438.22;57,15;Supervisor Morichal;
+MOR-008;2026-11-18;24;446.12;2623.26;44.91;Supervisor Morichal;
+SAM-007;2026-11-18;24;402.23;1107.40;32.50;Supervisor Saman;
+MOR-001;2026-11-18;24;632.31;6237.01;66.30;Supervisor Morichal;
+GARCERO 7;2026-11-18;24;538.55;4567.89;48.50;Supervisor Garcero;
+MOR-001;2026-11-17;24;632.31;6237.01;66.30;Supervisor Morichal;Corrige reporte del dia anterior
+SAM-002;2026-11-18;24;196.43;853.27;18.75;Supervisor Saman;
+GAR-010;2026-11-18;24;155.45;677.10;16.57;Supervisor Garcero;
