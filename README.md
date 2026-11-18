@@ -10,11 +10,15 @@ flowchart LR
         S[("Lakehouse Source<br/>simula SFTP / carpeta local")]
     end
     subgraph A["04_ALMACENAMIENTO"]
-        B[("Bronze")] --> SV[("Silver")] --> G[("Gold")]
+        B[("Bronze")]
+        SV[("Silver")]
+        G[("Gold")]
         WH[["WH_ControlCargas<br/>tabla de control"]]
     end
     S -- "Pipeline_Extraccion:<br/>copia los archivos" --> B
     WH -. "qué cargar y log de auditoría" .-> S
+    B -. "nb_Transformacion" .-> SV
+    SV -. "nb_Carga" .-> G
 ```
 
 ## 🗺️ Contenido
@@ -23,19 +27,27 @@ flowchart LR
 |---|---|---|
 | [1 · Preparación del ambiente](01-Preparacion-del-ambiente/README.md) | Workspace, carpetas, lakehouses, warehouse, tabla de control, log de auditoría y archivos fuente | ✅ Disponible |
 | [2 · Extracción](02-Extraccion/README.md) | Pipeline que lee la tabla de control, copia de la fuente a Bronze y registra cada copia en el log | ✅ Disponible |
-| 3 · Transformación | Notebooks Bronze → Silver (validación y limpieza) y Silver → Gold (modelo dimensional) | 🔜 En construcción |
+| [3 · Transformación](03-Transformacion/README.md) | Notebook Bronze → Silver (validación, limpieza y cuarentena) y pipeline con aviso por correo | ✅ Disponible |
+| [4 · Carga](04-Carga/README.md) | Notebook Silver → Gold (modelo dimensional y regla de negocio) y pipeline con aviso por correo | ✅ Disponible |
+| [5 · Orquestación](05-Orquestacion/README.md) | Pipeline que ejecuta extracción, transformación y carga en orden | ✅ Disponible |
 
 ## 📁 Estructura del repositorio
 
 ```
 ├── 01-Preparacion-del-ambiente/   ← paso a paso de la parte 1
 ├── 02-Extraccion/                 ← paso a paso de la parte 2
+├── 03-Transformacion/             ← paso a paso de la parte 3
+├── 04-Carga/                      ← paso a paso de la parte 4
+├── 05-Orquestacion/               ← paso a paso de la parte 5
 ├── img/                           ← capturas de la guía
 ├── sql/
 │   ├── 01_tabla_control_cargas.sql
 │   └── 02_log_auditoria.sql
 ├── pipeline/
 │   └── Pipeline_Extraccion.json
+├── notebooks/
+│   ├── nb_Transformacion.py / .ipynb   ← Bronze → Silver
+│   └── nb_Carga.py / .ipynb            ← Silver → Gold
 └── datos/
     └── fuente/                    ← los 5 archivos CSV que se suben en la parte 1
 ```

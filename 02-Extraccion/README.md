@@ -160,4 +160,4 @@ SELECT * FROM ControlCargas.TablaControlCargas WHERE Activo = 1 ORDER BY IdCarga
 
 ✅ **Al terminar esta parte tienes:** un pipeline dirigido por la tabla de control que copia las 5 fuentes a Bronze y registra cada copia en el log de auditoría.
 
-⬅️ [Parte 1 · Preparación del ambiente](../01-Preparacion-del-ambiente/README.md) · [Volver al inicio](../README.md)
+➡️ [Parte 3 · Transformación](../03-Transformacion/README.md) · ⬅️ [Parte 1 · Preparación del ambiente](../01-Preparacion-del-ambiente/README.md) · [Volver al inicio](../README.md)
