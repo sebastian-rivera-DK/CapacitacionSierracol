@@ -6,8 +6,6 @@ En esta parte creamos el notebook que toma las tablas limpias de Silver, aplica 
 erDiagram
     dim_fecha ||--o{ fact_produccion_diaria : sk_fecha
     dim_pozo ||--o{ fact_produccion_diaria : sk_pozo
-    dim_fecha ||--o{ fact_prueba_pozo : sk_fecha
-    dim_pozo ||--o{ fact_prueba_pozo : sk_pozo
     dim_fecha ||--o{ fact_mantenimiento : sk_fecha
     dim_equipo ||--o{ fact_mantenimiento : sk_equipo
     dim_pozo ||--o{ fact_mantenimiento : sk_pozo
@@ -17,7 +15,7 @@ erDiagram
 |---|---|---|
 | [1](#paso-1--crear-el-notebook) | Crear el notebook | `nb_Carga` en la carpeta `03_CARGA` |
 | [2](#paso-2--agregar-el-código) | Agregar el código | El notebook con el modelo dimensional |
-| [3](#paso-3--ejecutar-y-revisar-el-resultado) | Ejecutar y revisar | 3 dimensiones y 3 hechos en Gold |
+| [3](#paso-3--ejecutar-y-revisar-el-resultado) | Ejecutar y revisar | 3 dimensiones y 2 hechos en Gold |
 | [4](#paso-4--crear-el-pipeline-con-aviso-por-correo) | Crear el pipeline con aviso por correo | `Pipeline_Carga` |
 
 ---
@@ -50,12 +48,13 @@ erDiagram
 
 | Tabla | Una fila por… | Columnas principales |
 |---|---|---|
-| `dim_pozo` | pozo | `clave_pozo`, nombre, campo, coordenadas, estado, método de levantamiento |
-| `dim_equipo` | equipo de bombeo o variador | tipo, fabricante, modelo, potencia, pozo |
-| `dim_fecha` | día del año | año, mes, `anio_mes`, día |
-| `fact_produccion_diaria` | pozo y día | aceite, agua, gas, BSW, horas, **aceite esperado, desviación y alerta** |
-| `fact_prueba_pozo` | prueba de pozo | aceite, agua, BSW recalculado, presión |
+| `dim_pozo` | pozo | `clave_pozo`, nombre, campo, coordenadas, estado |
+| `dim_equipo` | equipo de bombeo o variador | tipo, fabricante, potencia, fecha de instalación, pozo |
+| `dim_fecha` | día del año | fecha, año, mes |
+| `fact_produccion_diaria` | pozo y día | aceite, agua, gas, horas, BSW, **aceite esperado, desviación y alerta** |
 | `fact_mantenimiento` | orden de mantenimiento | tipo, estado, costo, duración en días |
+
+Las pruebas de pozo no tienen tabla propia en Gold: se usan para calcular el aceite esperado de cada día.
 
 Las llaves (`sk_pozo`, `sk_equipo`, `sk_fecha`) son **enteros**: Power BI relaciona y comprime mejor con enteros que con textos.
 
@@ -80,7 +79,6 @@ Para cada pozo y día, el notebook busca la **última prueba de pozo válida** a
 | `dim_equipo` | 59 |
 | `dim_fecha` | 365 |
 | `fact_produccion_diaria` | 99 |
-| `fact_prueba_pozo` | 182 |
 | `fact_mantenimiento` | 137 |
 
 3. La última celda muestra los pozos con alerta. Debe aparecer **GAR-004** los días **17 y 18** (`sk_fecha` 20261117 y 20261118), con una producción cerca de **50 % por debajo** de su última prueba.

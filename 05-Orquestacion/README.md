@@ -45,7 +45,7 @@ flowchart LR
 | Bronze | Lakehouse `Bronze` → `Files/bronze` | Los 5 CSV |
 | Log de extracción | `WH_ControlCargas` → `ControlCargas.TablaLogAuditoria` | 5 filas nuevas con `Succeeded` |
 | Silver | Lakehouse `Silver` → `Tables` | Esquemas `openwell`, `sap`, `produccion`, `calidad` |
-| Gold | Lakehouse `Gold` → `Tables` | 3 dimensiones y 3 hechos |
+| Gold | Lakehouse `Gold` → `Tables` | 3 dimensiones y 2 hechos |
 
 ## Paso 4 · Programar la ejecución (opcional)
 

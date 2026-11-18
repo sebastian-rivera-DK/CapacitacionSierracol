@@ -47,15 +47,13 @@ Elige una de las dos opciones:
 
 ### Qué hace el código
 
-El notebook tiene 5 bloques cortos:
+El notebook tiene 3 celdas de código (más la de parámetros):
 
-| Bloque | Qué hace |
+| Celda | Qué hace |
 |---|---|
-| 1. Funciones de apoyo | Lee cada CSV **como texto**, normaliza los encabezados (`"ID EQUIPO"` → `id_equipo`) y define las limpiezas: números con coma decimal, fechas en tres formatos y la llave del pozo. La función `guardar` aplica las reglas, quita duplicados y escribe en Silver |
-| 2. Pozos | Limpia el maestro de pozos (corrige coordenadas invertidas) |
-| 3. Equipos y órdenes | Homologa fabricantes, estados (`TECO` / `Cerrada` / `CERRADO` → `Cerrada`) y costos (`$ 12.500.000` → `12500000`) |
-| 4. Pruebas y producción | Recalcula el BSW con agua y aceite, y valida volúmenes y horas |
-| 5. Cuarentena | Guarda todo lo rechazado en `calidad.cuarentena` y muestra un resumen por motivo |
+| Funciones | Limpiezas reutilizables: números con coma decimal (`num`), fechas en tres formatos (`fecha`), la llave del pozo (`pozo`) y valores con variantes (`homologar`, por ejemplo `TECO` / `CERRADO` → `Cerrada`). La función `procesar` hace el trabajo de cada fuente: lee el CSV, limpia, aplica las reglas, quita duplicados y escribe en Silver |
+| Fuentes | Una llamada a `procesar` por fuente, con sus columnas y sus reglas escritas como condiciones SQL (por ejemplo `"VOLUMEN_NEGATIVO": "aceite_bbl < 0 OR agua_bbl < 0"`) |
+| Cuarentena | Guarda todo lo rechazado en `calidad.cuarentena` y muestra cuántos registros rechazó cada motivo |
 
 Cada fuente se limpia en dos pasos:
 
@@ -64,7 +62,7 @@ Cada fuente se limpia en dos pasos:
 
 | Tabla | Motivos de rechazo |
 |---|---|
-| `openwell.pozos` | `POZO_INVALIDO`, `COORDENADAS_FUERA_DE_COLOMBIA`, `DUPLICADO` (gana la actualización más reciente) |
+| `openwell.pozos` | `POZO_INVALIDO`, `FUERA_DE_COLOMBIA`, `DUPLICADO` (gana la actualización más reciente) |
 | `sap.equipos_bes` | `POZO_NO_EXISTE`, `FECHA_FUTURA` |
 | `sap.ordenes_mantenimiento` | `EQUIPO_NO_EXISTE`, `FIN_ANTES_DEL_INICIO`, `DUPLICADO` (gana la última modificación) |
 | `openwell.pruebas_pozo` | `POZO_NO_EXISTE`, `SIN_ACEITE`, `DURACION_INVALIDA`, `FECHA_FUTURA` |
@@ -77,7 +75,7 @@ Cada fuente se limpia en dos pasos:
 ## Paso 3 · Ejecutar y revisar el resultado
 
 1. Haz clic en **Run all**. La primera ejecución tarda un poco más porque arranca la sesión de Spark.
-2. Cada bloque imprime cuántas filas leyó y cuántas pasaron a Silver. Con los datos del taller:
+2. Por cada fuente se imprime cuántas filas se leyeron y cuántas pasaron a Silver. Con los datos del taller:
 
 | Tabla en Silver | Filas leídas | Filas en Silver | A cuarentena |
 |---|---|---|---|
