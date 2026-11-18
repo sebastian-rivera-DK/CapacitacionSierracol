@@ -13,28 +13,31 @@ flowchart LR
         B[("Bronze")] --> SV[("Silver")] --> G[("Gold")]
         WH[["WH_ControlCargas<br/>tabla de control"]]
     end
-    S -- "pipeline: copia los archivos<br/>(full o incremental)" --> B
-    WH -. "qué cargar y desde cuándo" .-> S
+    S -- "Pipeline_Extraccion:<br/>copia los archivos" --> B
+    WH -. "qué cargar y log de auditoría" .-> S
 ```
 
 ## 🗺️ Contenido
 
 | Parte | Tema | Estado |
 |---|---|---|
-| [1 · Preparación del ambiente](01-Preparacion-del-ambiente/README.md) | Workspace, carpetas, lakehouses, warehouse, tabla de control de cargas y archivos fuente | ✅ Disponible |
-| 2 · Extracción | Pipeline que lee la tabla de control y copia de la fuente a Bronze | 🔜 En construcción |
+| [1 · Preparación del ambiente](01-Preparacion-del-ambiente/README.md) | Workspace, carpetas, lakehouses, warehouse, tabla de control, log de auditoría y archivos fuente | ✅ Disponible |
+| [2 · Extracción](02-Extraccion/README.md) | Pipeline que lee la tabla de control, copia de la fuente a Bronze y registra cada copia en el log | ✅ Disponible |
 | 3 · Transformación | Notebooks Bronze → Silver (validación y limpieza) y Silver → Gold (modelo dimensional) | 🔜 En construcción |
 
 ## 📁 Estructura del repositorio
 
 ```
 ├── 01-Preparacion-del-ambiente/   ← paso a paso de la parte 1
+├── 02-Extraccion/                 ← paso a paso de la parte 2
 ├── img/                           ← capturas de la guía
 ├── sql/
-│   └── 01_tabla_control_cargas.sql
+│   ├── 01_tabla_control_cargas.sql
+│   └── 02_log_auditoria.sql
+├── pipeline/
+│   └── Pipeline_Extraccion.json
 └── datos/
-    ├── fuente/                    ← archivos que se suben en la parte 1
-    └── llegan_manana/             ← archivos del día siguiente (para la carga incremental)
+    └── fuente/                    ← los 5 archivos CSV que se suben en la parte 1
 ```
 
 ## ✅ Antes de empezar

@@ -1,0 +1,301 @@
+{
+    "name": "Pipeline_Extraccion",
+    "properties": {
+        "activities": [
+            {
+                "name": "Lookup1",
+                "type": "Lookup",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "DataWarehouseSource",
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "firstRowOnly": false,
+                    "datasetSettings": {
+                        "annotations": [],
+                        "linkedService": {
+                            "name": "WH_ControlCargas",
+                            "properties": {
+                                "annotations": [],
+                                "type": "DataWarehouse",
+                                "typeProperties": {
+                                    "endpoint": "<ENDPOINT_SQL_WH_CONTROLCARGAS>",
+                                    "artifactId": "<ID_WH_CONTROLCARGAS>",
+                                    "workspaceId": "<ID_WORKSPACE>"
+                                }
+                            }
+                        },
+                        "type": "DataWarehouseTable",
+                        "schema": [],
+                        "typeProperties": {
+                            "schema": "ControlCargas",
+                            "table": "TablaControlCargas"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "ForEach1",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "Lookup1",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('Lookup1').output.value",
+                        "type": "Expression"
+                    },
+                    "isSequential": true,
+                    "activities": [
+                        {
+                            "name": "Copydata1",
+                            "type": "Copy",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "source": {
+                                    "type": "DelimitedTextSource",
+                                    "storeSettings": {
+                                        "type": "LakehouseReadSettings",
+                                        "recursive": true,
+                                        "enablePartitionDiscovery": false
+                                    },
+                                    "formatSettings": {
+                                        "type": "DelimitedTextReadSettings"
+                                    },
+                                    "datasetSettings": {
+                                        "annotations": [],
+                                        "linkedService": {
+                                            "name": "Source",
+                                            "properties": {
+                                                "annotations": [],
+                                                "type": "Lakehouse",
+                                                "typeProperties": {
+                                                    "workspaceId": "<ID_WORKSPACE>",
+                                                    "artifactId": "<ID_LAKEHOUSE_SOURCE>",
+                                                    "rootFolder": "Files"
+                                                }
+                                            }
+                                        },
+                                        "type": "DelimitedText",
+                                        "typeProperties": {
+                                            "location": {
+                                                "type": "LakehouseLocation",
+                                                "fileName": {
+                                                    "value": "@item().NombreArchivo",
+                                                    "type": "Expression"
+                                                },
+                                                "folderPath": "@item().RutaOrigen"
+                                            },
+                                            "columnDelimiter": "@item().Delimitador",
+                                            "escapeChar": "\\",
+                                            "firstRowAsHeader": true,
+                                            "quoteChar": "\""
+                                        },
+                                        "schema": []
+                                    }
+                                },
+                                "sink": {
+                                    "type": "DelimitedTextSink",
+                                    "storeSettings": {
+                                        "type": "LakehouseWriteSettings"
+                                    },
+                                    "formatSettings": {
+                                        "type": "DelimitedTextWriteSettings",
+                                        "fileExtension": ".txt"
+                                    },
+                                    "datasetSettings": {
+                                        "annotations": [],
+                                        "connectionSettings": {
+                                            "name": "Bronze",
+                                            "properties": {
+                                                "annotations": [],
+                                                "type": "Lakehouse",
+                                                "typeProperties": {
+                                                    "workspaceId": "<ID_WORKSPACE>",
+                                                    "artifactId": "<ID_LAKEHOUSE_BRONZE>",
+                                                    "rootFolder": "Files"
+                                                },
+                                                "externalReferences": {
+                                                    "connection": "<ID_CONEXION_BRONZE>"
+                                                }
+                                            }
+                                        },
+                                        "type": "DelimitedText",
+                                        "typeProperties": {
+                                            "location": {
+                                                "type": "LakehouseLocation",
+                                                "fileName": {
+                                                    "value": "@item().NombreArchivo",
+                                                    "type": "Expression"
+                                                },
+                                                "folderPath": {
+                                                    "value": "@item().RutaDestino",
+                                                    "type": "Expression"
+                                                }
+                                            },
+                                            "columnDelimiter": "@item().Delimitador",
+                                            "escapeChar": "\\",
+                                            "firstRowAsHeader": true,
+                                            "quoteChar": "\""
+                                        },
+                                        "schema": []
+                                    }
+                                },
+                                "enableStaging": false,
+                                "translator": {
+                                    "type": "TabularTranslator",
+                                    "typeConversion": true,
+                                    "typeConversionSettings": {
+                                        "allowDataTruncation": true,
+                                        "treatBooleanAsNumber": false
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "name": "Stored procedure - Succeeded",
+                            "type": "SqlServerStoredProcedure",
+                            "dependsOn": [
+                                {
+                                    "activity": "Copydata1",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "storedProcedureName": "[ControlCargas].[PostLogAuditoriaControlCargas]",
+                                "storedProcedureParameters": {
+                                    "EstadoEjecucion": {
+                                        "value": "Succeeded",
+                                        "type": "String"
+                                    },
+                                    "FechaInicio": {
+                                        "value": "@formatDateTime(addHours(utcNow(), -5), 'yyyy-MM-dd''T''HH:mm:ss')",
+                                        "type": "DateTime"
+                                    },
+                                    "IdCarga": {
+                                        "value": "@item().IdCarga",
+                                        "type": "Int32"
+                                    },
+                                    "NombreFuente": {
+                                        "value": "@concat(\n    item().Esquema\n    ,'.'\n    ,item().Tabla\n)",
+                                        "type": "String"
+                                    },
+                                    "TiempoCopiadoSegundos": {
+                                        "value": "@activity('Copydata1').output.executionDetails[0].duration",
+                                        "type": "Int32"
+                                    },
+                                    "TipoFuente": {
+                                        "value": "@item().NombreProceso",
+                                        "type": "String"
+                                    }
+                                }
+                            },
+                            "linkedService": {
+                                "name": "WH_ControlCargas",
+                                "properties": {
+                                    "annotations": [],
+                                    "type": "DataWarehouse",
+                                    "typeProperties": {
+                                        "endpoint": "<ENDPOINT_SQL_WH_CONTROLCARGAS>",
+                                        "artifactId": "<ID_WH_CONTROLCARGAS>",
+                                        "workspaceId": "<ID_WORKSPACE>"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "name": "Stored procedure - Failed",
+                            "type": "SqlServerStoredProcedure",
+                            "dependsOn": [
+                                {
+                                    "activity": "Copydata1",
+                                    "dependencyConditions": [
+                                        "Failed"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "storedProcedureName": "[ControlCargas].[PostLogAuditoriaControlCargas]",
+                                "storedProcedureParameters": {
+                                    "EstadoEjecucion": {
+                                        "value": "Failed",
+                                        "type": "String"
+                                    },
+                                    "FechaInicio": {
+                                        "value": "@formatDateTime(addHours(utcNow(), -5), 'yyyy-MM-dd''T''HH:mm:ss')",
+                                        "type": "DateTime"
+                                    },
+                                    "IdCarga": {
+                                        "value": "@item().IdCarga",
+                                        "type": "Int32"
+                                    },
+                                    "NombreFuente": {
+                                        "value": "@concat(\n    item().Esquema\n    ,'.'\n    ,item().Tabla\n)",
+                                        "type": "String"
+                                    },
+                                    "TiempoCopiadoSegundos": {
+                                        "value": "0",
+                                        "type": "Int32"
+                                    },
+                                    "TipoFuente": {
+                                        "value": "@item().NombreProceso",
+                                        "type": "String"
+                                    }
+                                }
+                            },
+                            "linkedService": {
+                                "name": "WH_ControlCargas",
+                                "properties": {
+                                    "annotations": [],
+                                    "type": "DataWarehouse",
+                                    "typeProperties": {
+                                        "endpoint": "<ENDPOINT_SQL_WH_CONTROLCARGAS>",
+                                        "artifactId": "<ID_WH_CONTROLCARGAS>",
+                                        "workspaceId": "<ID_WORKSPACE>"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+}

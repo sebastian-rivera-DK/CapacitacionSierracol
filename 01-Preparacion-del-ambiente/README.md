@@ -7,7 +7,7 @@ En esta parte dejamos listo todo lo que el taller necesita en Microsoft Fabric:
 | [1](#paso-1--crear-el-workspace) | Crear el workspace | Un área de trabajo con capacidad de Fabric |
 | [2](#paso-2--organizar-el-workspace-en-carpetas) | Crear las carpetas | El workspace organizado por etapas del flujo |
 | [3](#paso-3--crear-los-lakehouses-y-el-warehouse) | Crear los lakehouses y el warehouse | Las capas Bronze, Silver y Gold y el almacén del control de cargas |
-| [4](#paso-4--crear-la-tabla-de-control-de-cargas) | Crear la tabla de control de cargas | El framework sabe qué cargar y desde cuándo |
+| [4](#paso-4--crear-la-tabla-de-control-y-el-log-de-auditoría) | Crear la tabla de control y el log de auditoría | El framework sabe qué cargar y deja registro de cada carga |
 | [5](#paso-5--crear-la-fuente-y-subir-los-archivos) | Crear la fuente y subir los archivos | Los CSV disponibles en una carpeta que simula un SFTP |
 
 > Las capturas tienen **números en rojo** que indican el orden de los clics.
@@ -83,16 +83,18 @@ Cada lakehouse crea automáticamente un **SQL analytics endpoint** con el mismo 
 | Ideal para | Recibir archivos crudos y transformarlos a escala | Datos estructurados que se consultan y **actualizan** con SQL |
 
 - Las capas Bronze, Silver y Gold reciben archivos (CSV) y se transforman con notebooks: eso es trabajo de **lakehouse**.
-- La tabla de control se **actualiza** en cada ejecución (el pipeline mueve el watermark con un `UPDATE`): eso necesita un **warehouse**.
+- El control de cargas necesita **escribir con SQL**: el pipeline llama a un procedimiento almacenado que inserta una fila en el log de auditoría por cada archivo. Eso solo lo permite un **warehouse**.
 - En los dos casos los datos quedan en **OneLake** en formato **Delta**: es el mismo repositorio, con dos motores distintos.
 
 </details>
 
 ---
 
-## Paso 4 · Crear la tabla de control de cargas
+## Paso 4 · Crear la tabla de control y el log de auditoría
 
-La tabla de control le dice al framework **qué archivos cargar, de dónde a dónde, cómo** (completa o incremental) y **desde cuándo** (el watermark).
+### 4.1 Tabla de control de cargas
+
+La tabla de control le dice al framework **qué archivos cargar y de dónde a dónde**. Agregar una fuente nueva es agregar una fila: no hay que tocar el pipeline.
 
 1. Abre el warehouse **WH_ControlCargas** ①.
 2. En el panel **Explorer**, junto a **My queries**, haz clic en **…** ②.
@@ -103,38 +105,60 @@ La tabla de control le dice al framework **qué archivos cargar, de dónde a dó
 4. Pega el script [`sql/01_tabla_control_cargas.sql`](../sql/01_tabla_control_cargas.sql) y ejecútalo **en dos partes**:
    - Primero selecciona solo la línea `CREATE SCHEMA ControlCargas;` y haz clic en **Run**.
    - Después selecciona desde `CREATE TABLE` hasta el final del `INSERT` y haz clic en **Run**.
-5. Verifica con:
-   ```sql
-   SELECT * FROM ControlCargas.TablaControlCargas ORDER BY IdCarga;
-   ```
-   Deben aparecer **5 filas**, una por fuente.
+5. Ejecuta el `SELECT` del final del script: deben aparecer **5 filas**, una por fuente.
 
-### Qué significa cada campo
+#### Qué significa cada campo
 
 | Campo | Para qué sirve | Ejemplo |
 |---|---|---|
-| `IdCarga` | Identificador del proceso | `3` |
+| `IdCarga` | Identificador de la fuente | `3` |
 | `NombreProceso` | Nombre del objeto a cargar | `ordenes_mantenimiento` |
-| `RutaOrigen` | Carpeta de la fuente, dentro de `Files` del lakehouse `Source` | `fuente/sap/ordenes_mantenimiento` |
-| `PatronArchivo` | Archivo exacto, o comodín `*` cuando llega uno por fecha | `ordenes_mantenimiento_*.csv` |
+| `RutaOrigen` | Carpeta de la fuente, dentro de `Files` del lakehouse `Source` | `fuente/sap` |
+| `NombreArchivo` | Archivo que se copia | `ordenes_mantenimiento.csv` |
 | `Delimitador` | Separador del CSV | `;` |
-| `RutaDestino` | Carpeta en `Files` del lakehouse `Bronze` | `bronze/sap/ordenes_mantenimiento` |
-| `Esquema` / `Tabla` | Tabla Delta que se crea en Bronze | `SAP` / `ordenes_mantenimiento` |
-| `TipoCarga` | `FULL`: se copia y reemplaza todo · `INCREMENTAL`: solo lo nuevo | `INCREMENTAL` |
-| `Llave` | Si hay llave, los registros se **actualizan** (MERGE); si no, se **agregan** | `numero_orden` |
-| `ColumnaIncremental` | Si un registro llega dos veces, gana el valor más reciente de esta columna | `fecha_modificacion` |
-| `FechaUltimaCarga` | **Watermark**: solo se toman archivos modificados después de esta fecha | `1900-01-01` (aún no se ha cargado nada) |
-| `Activo` | `1` = se carga · `0` = se omite | `1` |
+| `RutaDestino` | Carpeta en `Files` del lakehouse `Bronze` donde queda la copia | `bronze/sap` |
+| `Esquema` / `Tabla` | Tabla Delta que se creará en Bronze en la etapa de transformación | `SAP` / `ordenes_mantenimiento` |
+| `Activo` | Indica si la fuente está habilitada (`1`) o no (`0`) | `1` |
+| `Observaciones` | Nota libre sobre la fuente | `Órdenes de mantenimiento SAP PM` |
+| `FechaModificacion` | Última vez que se cambió la configuración de la fila | `2026-11-17` |
 
-### Las 5 fuentes configuradas
+Todas las fuentes usan **carga completa**: en cada ejecución el archivo se copia de nuevo y reemplaza al anterior.
 
-| IdCarga | Proceso | Tipo de carga | Cómo se comporta |
+#### Las 5 fuentes configuradas
+
+| IdCarga | Proceso | Archivo | Origen → destino |
 |---|---|---|---|
-| 1 | `pozos` | FULL | Siempre se copia completo |
-| 2 | `equipos_bes` | FULL | Siempre se copia completo |
-| 3 | `ordenes_mantenimiento` | INCREMENTAL con llave | Solo extracciones nuevas; las órdenes que cambian se actualizan |
-| 4 | `pruebas_pozo` | FULL | Siempre se copia completo |
-| 5 | `produccion_diaria` | INCREMENTAL sin llave | Solo los archivos de días nuevos; se agregan |
+| 1 | `pozos` | `pozos.csv` | `fuente/openwell` → `bronze/openwell` |
+| 2 | `equipos_bes` | `equipos_bes.csv` | `fuente/sap` → `bronze/sap` |
+| 3 | `ordenes_mantenimiento` | `ordenes_mantenimiento.csv` | `fuente/sap` → `bronze/sap` |
+| 4 | `pruebas_pozo` | `pruebas_pozo.csv` | `fuente/openwell` → `bronze/openwell` |
+| 5 | `produccion_diaria` | `produccion_diaria.csv` | `fuente/produccion` → `bronze/produccion` |
+
+### 4.2 Log de auditoría
+
+El log guarda **una fila por cada archivo que procesa el pipeline**: si la copia salió bien o falló, cuánto tardó y cuándo empezó. Lo llena un **procedimiento almacenado** que el pipeline llama al terminar cada copia.
+
+1. Repite los pasos 1 a 3 del punto anterior para abrir otra **New SQL query** en **WH_ControlCargas**.
+2. Pega el script [`sql/02_log_auditoria.sql`](../sql/02_log_auditoria.sql) y ejecútalo **en dos partes**:
+   - Primero selecciona el bloque `CREATE OR ALTER PROCEDURE` completo (hasta `END;`) y haz clic en **Run**.
+   - Después selecciona el `CREATE TABLE` y haz clic en **Run**.
+
+> Si al crear el procedimiento aparece un error porque la tabla todavía no existe, ejecuta primero el `CREATE TABLE` y después el procedimiento.
+
+3. En **Explorer → Schemas → ControlCargas** deben aparecer:
+   - **Tables:** `TablaControlCargas` y `TablaLogAuditoria`
+   - **Stored Procedures:** `PostLogAuditoriaControlCargas`
+
+#### Qué guarda el log
+
+| Campo | Qué guarda | Ejemplo |
+|---|---|---|
+| `IdCarga` | Fuente de la tabla de control que se procesó | `1` |
+| `TipoFuente` | Nombre del proceso | `pozos` |
+| `NombreFuente` | Esquema y tabla de destino | `OpenWell.pozos` |
+| `EstadoEjecucion` | Resultado de la copia | `Succeeded` o `Failed` |
+| `TiempoCopiadoSegundos` | Duración de la copia | `12` |
+| `FechaInicio` | Fecha y hora del registro (hora de Colombia) | `2026-11-17 15:40:12` |
 
 ---
 
@@ -150,7 +174,7 @@ Este lakehouse hace el papel del **origen externo** (un SFTP o una carpeta local
 <p align="center"><img src="../img/06_subir_carpeta.png" width="450" alt="Subir carpeta al lakehouse"></p>
 
 5. Selecciona la carpeta **`fuente`** completa y confirma la carga.
-6. Verifica que en `Files` quedó esta estructura:
+6. Verifica que en `Files` quedó esta estructura (5 archivos):
 
 ```
 Files/
@@ -160,32 +184,27 @@ Files/
     │   └── pruebas_pozo.csv
     ├── sap/
     │   ├── equipos_bes.csv
-    │   └── ordenes_mantenimiento/
-    │       └── ordenes_mantenimiento_2026-11-15.csv
+    │   └── ordenes_mantenimiento.csv
     └── produccion/
-        ├── produccion_diaria_2026-11-15.csv
-        ├── produccion_diaria_2026-11-16.csv
-        └── produccion_diaria_2026-11-17.csv
+        └── produccion_diaria.csv
 ```
 
-Las rutas coinciden con la columna `RutaOrigen` de la tabla de control. Si cambias la estructura, actualiza también la tabla.
-
-> ⏳ **No subas todavía** la carpeta [`datos/llegan_manana`](../datos/llegan_manana). Trae los archivos del **18 de noviembre** (producción y una nueva extracción de órdenes). Los subiremos más adelante, para ver cómo la carga incremental toma **solo lo nuevo**.
+Las rutas y los nombres coinciden con las columnas `RutaOrigen` y `NombreArchivo` de la tabla de control. Si cambias la estructura, actualiza también la tabla.
 
 ### Qué contienen los archivos
 
 Son datos **sintéticos** de pozos de tres campos ficticios (Morichal, Garcero y Samán). Están separados por `;` y traen errores **a propósito**, que limpiaremos en la capa Silver.
 
-| Archivo | Simula | Errores que trae |
-|---|---|---|
-| `openwell/pozos.csv` | Maestro de pozos (OpenWell) | Pozos duplicados, nombres de campo con variantes, coordenadas invertidas o vacías, fechas en dos formatos |
-| `openwell/pruebas_pozo.csv` | Pruebas de pozo | Pozo escrito de varias formas, BSW mayor a 100 %, pruebas sin aceite o con duración 0 |
-| `sap/equipos_bes.csv` | Equipos de bombeo (export de SAP) | Encabezados con espacios, fabricante con variantes, equipos en pozos que no existen |
-| `sap/ordenes_mantenimiento/…` | Órdenes de mantenimiento (SAP PM) | Costos como `$ 12.500.000`, estados con variantes, órdenes repetidas |
-| `produccion/produccion_diaria_….csv` | Reporte diario, un archivo por día | Coma decimal, valores negativos, más de 24 horas, el 16 faltan pozos de Samán |
+| Archivo | Simula | Filas | Errores que trae |
+|---|---|---|---|
+| `openwell/pozos.csv` | Maestro de pozos (OpenWell) | 34 | Pozos duplicados, campo escrito con variantes, coordenadas invertidas, vacías o en `0,0`, fechas en dos formatos, un registro de prueba olvidado |
+| `openwell/pruebas_pozo.csv` | Pruebas de pozo | 187 | Pozo escrito de varias formas, BSW mayor a 100 %, pruebas sin aceite o con duración 0, una fecha futura, un pozo que no existe |
+| `sap/equipos_bes.csv` | Equipos de bombeo (export de SAP) | 61 | Encabezados con espacios, fabricante con variantes, potencia vacía, un equipo en un pozo que no existe, una fecha de instalación futura |
+| `sap/ordenes_mantenimiento.csv` | Órdenes de mantenimiento (SAP PM) | 155 | Costos como `$ 12.500.000` o `12.500.000,00`, estados con variantes, órdenes repetidas en dos versiones, fechas de fin antes del inicio |
+| `produccion/produccion_diaria.csv` | Producción diaria por pozo, del 15 al 18 de noviembre | 113 | Pozo escrito de 3 formas, coma decimal, valores negativos, más de 24 horas, filas repetidas, el 16 faltan pozos de Samán |
 
 ---
 
-✅ **Al terminar esta parte tienes:** el workspace organizado, las capas Bronze, Silver y Gold, la tabla de control de cargas con las 5 fuentes, y los archivos esperando en la fuente.
+✅ **Al terminar esta parte tienes:** el workspace organizado, las capas Bronze, Silver y Gold, la tabla de control con las 5 fuentes, el log de auditoría y los archivos esperando en la fuente.
 
-⬅️ [Volver al inicio](../README.md)
+➡️ [Parte 2 · Extracción](../02-Extraccion/README.md) · ⬅️ [Volver al inicio](../README.md)
