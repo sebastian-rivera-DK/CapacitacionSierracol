@@ -6,13 +6,13 @@ En esta parte creamos el notebook que **valida y limpia** los archivos que el pi
 flowchart LR
     B["Bronze<br/>Files/bronze/*.csv"] --> NB["nb_Transformacion<br/>corrige · valida · deduplica"]
     NB --> S["Silver<br/>tablas limpias por esquema"]
-    NB --> Q["Silver · calidad<br/>cuarentena y resumen"]
+    NB --> Q["Silver · calidad.cuarentena<br/>lo rechazado y su motivo"]
 ```
 
 | Paso | Qué haces | Resultado |
 |---|---|---|
 | [1](#paso-1--crear-el-notebook) | Crear el notebook | `nb_Transformacion` en la carpeta `02_TRANSFORMACION` |
-| [2](#paso-2--agregar-el-código) | Agregar el código | El notebook con las reglas de calidad |
+| [2](#paso-2--agregar-el-código) | Agregar el código | El notebook con las reglas de limpieza y validación |
 | [3](#paso-3--ejecutar-y-revisar-el-resultado) | Ejecutar y revisar | Tablas limpias en Silver y la cuarentena con lo rechazado |
 | [4](#paso-4--crear-el-pipeline-con-aviso-por-correo) | Crear el pipeline con aviso por correo | `Pipeline_Transformacion`, que ejecuta el notebook y envía un correo si falla |
 
@@ -36,7 +36,7 @@ flowchart LR
 Elige una de las dos opciones:
 
 - **Opción A · Pegar el código.** Copia todo el contenido de [`notebooks/nb_Transformacion.py`](../notebooks/nb_Transformacion.py) y pégalo en la primera celda del notebook.
-- **Opción B · Importar el notebook ya armado (con celdas y explicaciones).** En la carpeta `02_TRANSFORMACION`, haz clic en **Import → Notebook → From this computer** y selecciona [`notebooks/nb_Transformacion.ipynb`](../notebooks/nb_Transformacion.ipynb). Después agrega el lakehouse **Silver** como en el paso 1.
+- **Opción B · Importar el notebook ya armado (con sus celdas).** En la carpeta `02_TRANSFORMACION`, haz clic en **Import → Notebook → From this computer** y selecciona [`notebooks/nb_Transformacion.ipynb`](../notebooks/nb_Transformacion.ipynb). Después agrega el lakehouse **Silver** como en el paso 1.
 
 **Parámetros** (al inicio del código):
 
@@ -47,58 +47,28 @@ Elige una de las dos opciones:
 
 ### Qué hace el código
 
-1. **Lee** cada CSV de `Files/bronze/...` **como texto** y normaliza los encabezados (`"ID EQUIPO"` → `id_equipo`).
-2. Aplica cuatro tipos de regla por fuente:
+El notebook tiene 5 bloques cortos:
 
-| Tipo | Qué hace | Ejemplo |
-|---|---|---|
-| **Corrección** | Arregla el dato y sigue | `"245,5"` → `245.5` · `"MORICHAL 1"` → `MOR-001` |
-| **Rechazo** | El registro no pasa a Silver: va a la **cuarentena** con el motivo | Aceite negativo |
-| **Advertencia** | El registro pasa, pero queda marcado en la columna `advertencias` | Pozo sin coordenadas |
-| **Duplicado** | Si un registro llega más de una vez, se conserva uno | La misma orden en dos versiones |
+| Bloque | Qué hace |
+|---|---|
+| 1. Funciones de apoyo | Lee cada CSV **como texto**, normaliza los encabezados (`"ID EQUIPO"` → `id_equipo`) y define las limpiezas: números con coma decimal, fechas en tres formatos y la llave del pozo. La función `guardar` aplica las reglas, quita duplicados y escribe en Silver |
+| 2. Pozos | Limpia el maestro de pozos (corrige coordenadas invertidas) |
+| 3. Equipos y órdenes | Homologa fabricantes, estados (`TECO` / `Cerrada` / `CERRADO` → `Cerrada`) y costos (`$ 12.500.000` → `12500000`) |
+| 4. Pruebas y producción | Recalcula el BSW con agua y aceite, y valida volúmenes y horas |
+| 5. Cuarentena | Guarda todo lo rechazado en `calidad.cuarentena` y muestra un resumen por motivo |
 
-3. **Escribe** las tablas limpias en Silver, una por fuente, y las tablas de calidad.
+Cada fuente se limpia en dos pasos:
 
-<details>
-<summary>Ver todas las reglas</summary>
+1. **Corrección:** el dato se arregla y sigue. Por ejemplo `"245,5"` → `245.5` o `"MORICHAL 1"` → `MOR-001`.
+2. **Rechazo:** si el registro cumple una regla de rechazo, o está repetido, no pasa a Silver y va a la cuarentena con el **motivo**.
 
-| Fuente | Regla | Tipo | Qué atiende |
-|---|---|---|---|
-| pozos | POZ-C1 | Corrección | Campo escrito con variantes (`Morichal`, `MORICHAL `, `morichal`) |
-| pozos | POZ-C2 | Corrección | Latitud y longitud invertidas |
-| pozos | POZ-C3 | Corrección | Fechas en dos formatos y profundidad con texto (`8828 ft`) |
-| pozos | POZ-01 | Rechazo | Identificador de pozo inválido (`POZO-PRUEBA`) |
-| pozos | POZ-02 | Rechazo | Coordenadas fuera de Colombia (`0,0`) |
-| pozos | POZ-03 | Advertencia | Coordenadas vacías |
-| pozos | POZ-04 | Advertencia | Coordenadas que venían invertidas |
-| pozos | POZ-05 | Advertencia | Método de levantamiento sin dato |
-| pozos | POZ-DUP | Rechazo | El mismo pozo dos veces: gana la actualización más reciente |
-| equipos_bes | EQU-C1 | Corrección | Fabricante con variantes (`FABRICANTE A`, `Fab. A`) |
-| equipos_bes | EQU-C2 | Corrección | Ubicación técnica SAP → `clave_pozo`; potencia 0 → vacía |
-| equipos_bes | EQU-01 | Rechazo | El pozo no existe en el maestro |
-| equipos_bes | EQU-02 | Rechazo | Fecha de instalación futura o inválida |
-| equipos_bes | EQU-03 | Advertencia | Potencia sin dato |
-| ordenes_mantenimiento | ORD-C1 | Corrección | Estados `TECO` / `Cerrada` / `CERRADO` → Creada / Liberada / Cerrada |
-| ordenes_mantenimiento | ORD-C2 | Corrección | Costo como `$ 12.500.000` o `12.500.000,00` |
-| ordenes_mantenimiento | ORD-01 | Rechazo | El equipo no existe o fue rechazado en Silver |
-| ordenes_mantenimiento | ORD-02 | Rechazo | Fecha de fin anterior a la de inicio |
-| ordenes_mantenimiento | ORD-03 | Rechazo | Estado no reconocido |
-| ordenes_mantenimiento | ORD-04 | Advertencia | Orden cerrada sin costo |
-| ordenes_mantenimiento | ORD-DUP | Rechazo | La misma orden en dos versiones: gana la última modificación |
-| pruebas_pozo | PRU-C1 | Corrección | Pozo con variantes; el BSW se recalcula con agua / (agua + aceite) |
-| pruebas_pozo | PRU-01 | Rechazo | El pozo no existe |
-| pruebas_pozo | PRU-02 | Rechazo | Prueba sin aceite medido |
-| pruebas_pozo | PRU-03 | Rechazo | Duración 0 o vacía |
-| pruebas_pozo | PRU-04 | Rechazo | Fecha de prueba futura |
-| pruebas_pozo | PRU-05 | Advertencia | BSW reportado distinto al calculado |
-| produccion_diaria | PRO-C1 | Corrección | Pozo con variantes y coma decimal |
-| produccion_diaria | PRO-01 | Rechazo | El pozo no existe (`MOR-099`) |
-| produccion_diaria | PRO-02 | Rechazo | Volumen negativo |
-| produccion_diaria | PRO-03 | Rechazo | Horas de operación fuera de 0–24 |
-| produccion_diaria | PRO-04 | Rechazo | Fecha inválida o vacía |
-| produccion_diaria | PRO-DUP | Rechazo | Mismo pozo y fecha más de una vez: gana la última fila del archivo |
-
-</details>
+| Tabla | Motivos de rechazo |
+|---|---|
+| `openwell.pozos` | `POZO_INVALIDO`, `COORDENADAS_FUERA_DE_COLOMBIA`, `DUPLICADO` (gana la actualización más reciente) |
+| `sap.equipos_bes` | `POZO_NO_EXISTE`, `FECHA_FUTURA` |
+| `sap.ordenes_mantenimiento` | `EQUIPO_NO_EXISTE`, `FIN_ANTES_DEL_INICIO`, `DUPLICADO` (gana la última modificación) |
+| `openwell.pruebas_pozo` | `POZO_NO_EXISTE`, `SIN_ACEITE`, `DURACION_INVALIDA`, `FECHA_FUTURA` |
+| `produccion.produccion_diaria` | `POZO_NO_EXISTE`, `FECHA_INVALIDA`, `VOLUMEN_NEGATIVO`, `HORAS_FUERA_DE_RANGO`, `DUPLICADO` (gana la última fila del archivo) |
 
 > **Homologación de pozos:** el mismo pozo llega escrito de varias formas según la fuente (`CO-LLA-MOR-0001`, `CO-LLA-MORICHAL-001`, `MORICHAL 1`, ` mor-1 `). El notebook construye una sola llave, `clave_pozo` = `MOR-001`, que es la que une las fuentes.
 
@@ -107,23 +77,18 @@ Elige una de las dos opciones:
 ## Paso 3 · Ejecutar y revisar el resultado
 
 1. Haz clic en **Run all**. La primera ejecución tarda un poco más porque arranca la sesión de Spark.
-2. Al final, el notebook muestra un resumen por tabla. Con los datos del taller debe dar:
+2. Cada bloque imprime cuántas filas leyó y cuántas pasaron a Silver. Con los datos del taller:
 
-| Tabla en Silver | Filas en Bronze | Filas en Silver | Rechazadas | Con advertencia |
-|---|---|---|---|---|
-| `openwell.pozos` | 34 | 30 | 4 | 4 |
-| `sap.equipos_bes` | 61 | 59 | 2 | 3 |
-| `sap.ordenes_mantenimiento` | 155 | 137 | 18 | 1 |
-| `openwell.pruebas_pozo` | 187 | 182 | 5 | 3 |
-| `produccion.produccion_diaria` | 113 | 99 | 14 | 0 |
+| Tabla en Silver | Filas leídas | Filas en Silver | A cuarentena |
+|---|---|---|---|
+| `openwell.pozos` | 34 | 30 | 4 |
+| `sap.equipos_bes` | 61 | 59 | 2 |
+| `sap.ordenes_mantenimiento` | 155 | 137 | 18 |
+| `openwell.pruebas_pozo` | 187 | 182 | 5 |
+| `produccion.produccion_diaria` | 113 | 99 | 14 |
 
 3. En el lakehouse **Silver**, en **Tables**, deben aparecer los esquemas `openwell`, `sap`, `produccion` y `calidad`.
-
-| Tabla de calidad | Qué contiene |
-|---|---|
-| `calidad.cuarentena` | Cada registro rechazado, con la regla que lo rechazó y el registro original en JSON |
-| `calidad.catalogo_reglas` | Todas las reglas con su descripción y tipo |
-| `calidad.resumen_calidad` | Cuántas filas afectó cada regla en cada ejecución (se acumula) |
+4. La última celda muestra cuántos registros rechazó cada motivo. El detalle está en `calidad.cuarentena`: cada fila trae la tabla, el motivo y el registro completo en JSON.
 
 > 💬 **Para conversar:** 13 de las 18 órdenes rechazadas son versiones viejas de órdenes que se actualizaron, y 2 se rechazan "en cascada" porque su equipo fue rechazado por tener una fecha de instalación futura. ¿Quién debería decidir qué pasa con lo que queda en cuarentena: TI o el dueño del dato?
 

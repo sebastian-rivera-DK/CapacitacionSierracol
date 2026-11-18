@@ -50,12 +50,12 @@ erDiagram
 
 | Tabla | Una fila por… | Columnas principales |
 |---|---|---|
-| `dim_pozo` | pozo | `clave_pozo`, campo, coordenadas, estado, `calidad_maestro` (advertencias de Silver) |
-| `dim_equipo` | equipo de bombeo o variador | tipo, fabricante, potencia, pozo |
-| `dim_fecha` | día | año, mes, semana |
-| `fact_produccion_diaria` | pozo y día | aceite, agua, gas, líquido, BSW, eficiencia, **aceite esperado, desviación y alerta** |
+| `dim_pozo` | pozo | `clave_pozo`, nombre, campo, coordenadas, estado, método de levantamiento |
+| `dim_equipo` | equipo de bombeo o variador | tipo, fabricante, modelo, potencia, pozo |
+| `dim_fecha` | día del año | año, mes, `anio_mes`, día |
+| `fact_produccion_diaria` | pozo y día | aceite, agua, gas, BSW, horas, **aceite esperado, desviación y alerta** |
 | `fact_prueba_pozo` | prueba de pozo | aceite, agua, BSW recalculado, presión |
-| `fact_mantenimiento` | orden de mantenimiento | tipo, estado, costo, duración, `es_abierta` |
+| `fact_mantenimiento` | orden de mantenimiento | tipo, estado, costo, duración en días |
 
 Las llaves (`sk_pozo`, `sk_equipo`, `sk_fecha`) son **enteros**: Power BI relaciona y comprime mejor con enteros que con textos.
 
@@ -78,12 +78,12 @@ Para cada pozo y día, el notebook busca la **última prueba de pozo válida** a
 |---|---|
 | `dim_pozo` | 30 |
 | `dim_equipo` | 59 |
-| `dim_fecha` | 201 |
+| `dim_fecha` | 365 |
 | `fact_produccion_diaria` | 99 |
 | `fact_prueba_pozo` | 182 |
 | `fact_mantenimiento` | 137 |
 
-3. La celda de verificación muestra los pozos con alerta. Debe aparecer **GAR-004** los días **17 y 18**, con una producción cerca de **50 % por debajo** de su última prueba.
+3. La última celda muestra los pozos con alerta. Debe aparecer **GAR-004** los días **17 y 18** (`sk_fecha` 20261117 y 20261118), con una producción cerca de **50 % por debajo** de su última prueba.
 
 > 💬 **Para conversar:** la caída de GAR-004 no es un error de datos: Silver la dejó pasar porque los valores son válidos. La detecta Gold, porque es una **regla de negocio**. ¿Qué otras reglas de negocio de Sierracol vivirían en Gold?
 
