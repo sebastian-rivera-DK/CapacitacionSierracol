@@ -1,107 +1,219 @@
 # %% [markdown]
-# # nb_Transformacion · Bronze → Silver
-# Limpia los CSV de **Bronze** y los escribe en **Silver** (lakehouse predeterminado).
-# Lo que no pasa las reglas va a `calidad.cuarentena` con el motivo.
+# # 🧹 nb_Transformacion · Bronze → Silver
+#
+# Lee los 5 archivos CSV que el pipeline de extracción dejó en **Bronze**, los **limpia** y los escribe como
+# tablas Delta en **Silver**.
+#
+# | Paso | Qué pasa con el dato |
+# |---|---|
+# | **Limpiar** | Se corrige el formato: números con coma decimal, fechas en varios formatos, nombres con variantes |
+# | **Filtrar** | Se descartan los registros que no sirven (por ejemplo, un pozo que no existe) |
+# | **Quitar duplicados** | Si un registro llega más de una vez, se conserva el más reciente |
+#
+# > **Antes de ejecutar:** agrega el lakehouse **Silver** como lakehouse predeterminado del notebook
+# > (panel *Explorer* → *Add data items* → *Existing data sources* → `Silver`).
+
+# %% [markdown]
+# ### ⚙️ Parámetros
 
 # %% PARAMETROS
-WORKSPACE = ""        # vacío = el workspace actual
-LH_BRONZE = "Bronze"
+WORKSPACE = ""        # vacío = el workspace donde corre el notebook
+LH_BRONZE = "Bronze"  # lakehouse donde el pipeline dejó los archivos
+
+# %% [markdown]
+# ## 1. Preparación
+#
+# Funciones que se reutilizan con todas las fuentes:
+#
+# | Función | Qué hace | Ejemplo |
+# |---|---|---|
+# | `leer` | Lee un CSV de Bronze como texto y normaliza los encabezados | `"ID EQUIPO"` → `id_equipo` |
+# | `numero` | Convierte texto a número | `"245,5"` → `245.5` · `"8828 ft"` → `8828` |
+# | `fecha` | Convierte texto a fecha, en tres formatos | `2026-11-15` · `15/11/2026` · `20261115` |
+# | `clave_pozo` | Une las formas de escribir un pozo en una sola llave | `CO-LLA-MORICHAL-001` · `MORICHAL 1` → `MOR-001` |
+# | `quitar_duplicados` | Deja un registro por llave, el más reciente | |
+# | `guardar` | Escribe la tabla en Silver | |
 
 # %%
 import re
-from functools import reduce
-from pyspark.sql import DataFrame, Window, functions as F
+from pyspark.sql import Window, functions as F
 
 WORKSPACE = WORKSPACE or notebookutils.runtime.context["currentWorkspaceName"]
 BRONZE = f"abfss://{WORKSPACE}@onelake.dfs.fabric.microsoft.com/{LH_BRONZE}.Lakehouse/Files/bronze"
-cuarentena = []
+resumen = []
 
 
-def num(c):          # '245,5' → 245.5 · '8828 ft' → 8828
+def leer(ruta):
+    df = spark.read.option("header", True).option("sep", ";").csv(f"{BRONZE}/{ruta}")
+    nombres = [re.sub(r"[^a-z0-9]+", "_", c.replace("﻿", "").strip().lower()).strip("_") for c in df.columns]
+    return df.toDF(*nombres).withColumn("_fila", F.monotonically_increasing_id())
+
+
+def numero(c):
     return F.regexp_replace(F.regexp_replace(c, ",", "."), r"[^0-9.\-]", "").cast("double")
 
 
-def fecha(c):        # yyyy-MM-dd · dd/MM/yyyy · yyyyMMdd
-    return (F.when(F.col(c).rlike(r"^\d{4}-"), F.to_date(F.substring(c, 1, 10)))
-             .when(F.col(c).rlike("/"), F.to_date(c, "dd/MM/yyyy")).otherwise(F.to_date(c, "yyyyMMdd")))
+def fecha(c):
+    c = F.col(c)
+    return (F.when(c.rlike(r"^\d{4}-\d{2}-\d{2}"), F.to_date(F.substring(c, 1, 10)))
+             .when(c.rlike(r"^\d{2}/\d{2}/\d{4}$"), F.to_date(c, "dd/MM/yyyy"))
+             .when(c.rlike(r"^\d{8}$"), F.to_date(c, "yyyyMMdd")))
 
 
-def pozo(c):         # CO-LLA-MOR-0001 · CO-LLA-MORICHAL-001 · 'MORICHAL 1' · ' mor-1 ' → MOR-001
+def clave_pozo(c):
     s, p = F.regexp_replace(F.upper(F.trim(c)), "^CO-LLA-", ""), r"^([A-Z]{3})[A-Z]*[^A-Z0-9]*0*([0-9]+)$"
     return F.when(s.rlike(p), F.concat(F.regexp_extract(s, p, 1), F.lit("-"), F.lpad(F.regexp_extract(s, p, 2), 3, "0")))
 
 
-def homologar(c, valores):   # {'TECO': 'Cerrada', ...}
-    return F.create_map(*[F.lit(x) for par in valores.items() for x in par])[F.upper(F.trim(c))]
+def quitar_duplicados(df, llaves, mas_reciente):
+    ventana = Window.partitionBy(*llaves).orderBy(F.desc(mas_reciente))
+    return df.withColumn("_n", F.row_number().over(ventana)).where("_n = 1").drop("_n")
 
 
-def procesar(archivo, tabla, columnas, reglas, llaves, mas_reciente="_fila", referencia=None):
-    """Lee el CSV, limpia, rechaza (reglas y duplicados) y escribe en Silver."""
-    df = spark.read.option("header", True).option("sep", ";").csv(f"{BRONZE}/{archivo}")
-    df = df.toDF(*[re.sub(r"\W+", "_", c.replace("﻿", "").strip().lower()) for c in df.columns])
-    df = df.withColumn("_fila", F.monotonically_increasing_id()).select("_fila", *columnas)
-    if referencia:                                   # la llave debe existir en otra tabla de Silver
-        ref, llave = referencia
-        df = df.join(ref.select(llave).distinct().withColumn("_existe", F.lit(1)), llave, "left")
+def guardar(df, tabla, filas_bronze):
+    esquema = tabla.split(".")[0]
+    df = df.drop("_fila")
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS {esquema}")
+    df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(tabla)
+    filas_silver = df.count()
+    resumen.append((tabla, filas_bronze, filas_silver, filas_bronze - filas_silver))
+    print(f"✅ {tabla}: {filas_bronze} filas en Bronze → {filas_silver} en Silver")
 
-    df = df.withColumn("motivo", F.coalesce(*[F.when(F.expr(regla), motivo) for motivo, regla in reglas.items()]))
-    orden = Window.partitionBy(*llaves, F.col("motivo").isNull()).orderBy(F.desc(mas_reciente))
-    df = df.withColumn("motivo", F.when(F.col("motivo").isNull() & (F.row_number().over(orden) > 1), "DUPLICADO")
-                                  .otherwise(F.col("motivo")))
-
-    cols = [c for c in df.columns if not c.startswith("_") and c != "motivo"]
-    cuarentena.append(df.where("motivo IS NOT NULL")
-                        .select(F.lit(tabla).alias("tabla"), "motivo", F.to_json(F.struct(*cols)).alias("registro")))
-    limpio = df.where("motivo IS NULL").select(*cols)
-    spark.sql(f"CREATE SCHEMA IF NOT EXISTS {tabla.split('.')[0]}")
-    limpio.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(tabla)
-    print(f"{tabla}: {df.count()} leídas · {limpio.count()} en Silver")
-    return limpio
+# %% [markdown]
+# ## 2. Pozos (OpenWell)
+#
+# | Limpieza | Filtro |
+# |---|---|
+# | Llave del pozo, campo en mayúsculas, latitud y longitud invertidas, fechas | Solo pozos con identificador válido · sin duplicados (gana la actualización más reciente) |
 
 # %%
-lat, lon = num("latitud"), num("longitud")
-pozos = procesar("openwell/pozos.csv", "openwell.pozos",
-    [pozo("id_pozo").alias("clave_pozo"), F.trim("nombre_pozo").alias("nombre_pozo"), F.upper(F.trim("campo")).alias("campo"),
-     F.when(lat < -60, lon).otherwise(lat).alias("latitud"), F.when(lat < -60, lat).otherwise(lon).alias("longitud"),
-     F.upper("estado").alias("estado"), fecha("fecha_actualizacion").alias("fecha_actualizacion")],
-    {"POZO_INVALIDO": "clave_pozo IS NULL",
-     "FUERA_DE_COLOMBIA": "NOT (latitud BETWEEN -4.3 AND 13.5 AND longitud BETWEEN -82 AND -66)"},
-    ["clave_pozo"], "fecha_actualizacion")
+bronze = leer("openwell/pozos.csv")
+lat, lon = numero("latitud"), numero("longitud")
 
-equipos = procesar("sap/equipos_bes.csv", "sap.equipos_bes",
-    [F.col("id_equipo"), pozo("ubicacion_tecnica").alias("clave_pozo"), F.col("tipo").alias("tipo_equipo"),
-     F.initcap(F.regexp_replace(F.upper(F.trim("fabricante")), r"^FAB\.? ", "FABRICANTE ")).alias("fabricante"),
-     num("potencia_hp").alias("potencia_hp"), fecha("fecha_instalacion").alias("fecha_instalacion")],
-    {"POZO_NO_EXISTE": "_existe IS NULL", "FECHA_FUTURA": "fecha_instalacion > current_date()"},
-    ["id_equipo"], referencia=(pozos, "clave_pozo"))
+pozos = bronze.select(
+    clave_pozo("id_pozo").alias("clave_pozo"),
+    F.trim("id_pozo").alias("uwi"),
+    F.trim("nombre_pozo").alias("nombre_pozo"),
+    F.upper(F.trim("campo")).alias("campo"),
+    F.when(lat < -60, lon).otherwise(lat).alias("latitud"),     # vienen invertidas en algunos registros
+    F.when(lat < -60, lat).otherwise(lon).alias("longitud"),
+    F.upper("estado").alias("estado"),
+    F.coalesce(F.upper("metodo_levantamiento"), F.lit("SIN DATO")).alias("metodo_levantamiento"),
+    fecha("fecha_actualizacion").alias("fecha_actualizacion"),
+)
+pozos = pozos.where("clave_pozo IS NOT NULL")
+pozos = quitar_duplicados(pozos, ["clave_pozo"], "fecha_actualizacion")
 
-ordenes = procesar("sap/ordenes_mantenimiento.csv", "sap.ordenes_mantenimiento",
-    [F.col("numero_orden"), F.col("id_equipo"),
-     homologar("tipo_orden", {"PM01": "Correctivo", "PM02": "Preventivo", "PM03": "Predictivo"}).alias("tipo_orden"),
-     homologar("estado", {"CRTD": "Creada", "CREADA": "Creada", "REL": "Liberada", "LIBERADA": "Liberada",
-                          "TECO": "Cerrada", "CERRADA": "Cerrada", "CERRADO": "Cerrada"}).alias("estado"),
-     F.regexp_replace(F.regexp_replace("costo_cop", r",\d{2}$", ""), r"[^0-9]", "").cast("decimal(18,2)").alias("costo_cop"),
-     fecha("fecha_inicio").alias("fecha_inicio"), fecha("fecha_fin").alias("fecha_fin"),
-     F.to_timestamp("fecha_modificacion").alias("fecha_modificacion")],
-    {"EQUIPO_NO_EXISTE": "_existe IS NULL", "FIN_ANTES_DEL_INICIO": "fecha_fin < fecha_inicio"},
-    ["numero_orden"], "fecha_modificacion", referencia=(equipos, "id_equipo"))
+guardar(pozos, "openwell.pozos", bronze.count())
+display(pozos.limit(5))
 
-pruebas = procesar("openwell/pruebas_pozo.csv", "openwell.pruebas_pozo",
-    [F.col("id_prueba"), pozo("pozo").alias("clave_pozo"), fecha("fecha_prueba").alias("fecha_prueba"),
-     num("duracion_horas").alias("duracion_horas"), num("aceite_bpd").alias("aceite_bpd")],
-    {"POZO_NO_EXISTE": "_existe IS NULL", "SIN_ACEITE": "aceite_bpd IS NULL",
-     "DURACION_INVALIDA": "coalesce(duracion_horas, 0) <= 0", "FECHA_FUTURA": "fecha_prueba > current_date()"},
-    ["id_prueba"], referencia=(pozos, "clave_pozo"))
-
-produccion = procesar("produccion/produccion_diaria.csv", "produccion.produccion_diaria",
-    [pozo("pozo").alias("clave_pozo"), fecha("fecha").alias("fecha"), num("aceite_bbl").alias("aceite_bbl"),
-     num("agua_bbl").alias("agua_bbl"), num("gas_kpc").alias("gas_kpc"), num("horas_operacion").alias("horas_operacion")],
-    {"POZO_NO_EXISTE": "_existe IS NULL", "FECHA_INVALIDA": "fecha IS NULL",
-     "VOLUMEN_NEGATIVO": "aceite_bbl < 0 OR agua_bbl < 0", "HORAS_FUERA_DE_RANGO": "NOT horas_operacion BETWEEN 0 AND 24"},
-    ["clave_pozo", "fecha"], referencia=(pozos, "clave_pozo"))
+# %% [markdown]
+# ## 3. Equipos BES (SAP)
+#
+# | Limpieza | Filtro |
+# |---|---|
+# | Ubicación técnica SAP → llave del pozo, fabricante homologado (`Fab. A` → `Fabricante A`) | Solo equipos de pozos que existen |
 
 # %%
-rechazos = reduce(DataFrame.unionByName, cuarentena)
-spark.sql("CREATE SCHEMA IF NOT EXISTS calidad")
-rechazos.write.format("delta").mode("overwrite").saveAsTable("calidad.cuarentena")
-display(rechazos.groupBy("tabla", "motivo").count().orderBy("tabla", "motivo"))
+bronze = leer("sap/equipos_bes.csv")
+
+equipos = bronze.select(
+    F.trim("id_equipo").alias("id_equipo"),
+    clave_pozo("ubicacion_tecnica").alias("clave_pozo"),
+    F.upper("tipo").alias("tipo_equipo"),
+    F.initcap(F.regexp_replace(F.upper(F.trim("fabricante")), r"^FAB\.? ", "FABRICANTE ")).alias("fabricante"),
+    F.trim("modelo").alias("modelo"),
+    numero("potencia_hp").alias("potencia_hp"),
+    fecha("fecha_instalacion").alias("fecha_instalacion"),
+)
+equipos = equipos.join(pozos.select("clave_pozo"), "clave_pozo", "left_semi")
+
+guardar(equipos, "sap.equipos_bes", bronze.count())
+display(equipos.groupBy("fabricante").count())
+
+# %% [markdown]
+# ## 4. Órdenes de mantenimiento (SAP PM)
+#
+# | Limpieza | Filtro |
+# |---|---|
+# | Estados (`TECO`, `Cerrada`, `CERRADO` → `Cerrada`), tipo de orden, costo (`$ 12.500.000` → `12500000`), fechas | Sin duplicados (gana la última modificación) |
+
+# %%
+bronze = leer("sap/ordenes_mantenimiento.csv")
+estado, tipo = F.upper(F.trim("estado")), F.upper(F.trim("tipo_orden"))
+
+ordenes = bronze.select(
+    F.trim("numero_orden").alias("numero_orden"),
+    F.trim("id_equipo").alias("id_equipo"),
+    F.when(tipo == "PM01", "Correctivo").when(tipo == "PM02", "Preventivo").otherwise("Predictivo").alias("tipo_orden"),
+    F.when(estado.isin("CRTD", "CREADA"), "Creada")
+     .when(estado.isin("REL", "LIBERADA"), "Liberada")
+     .otherwise("Cerrada").alias("estado"),
+    F.regexp_replace(F.regexp_replace("costo_cop", r",\d{2}$", ""), r"[^0-9]", "").cast("decimal(18,2)").alias("costo_cop"),
+    fecha("fecha_inicio").alias("fecha_inicio"),
+    fecha("fecha_fin").alias("fecha_fin"),
+    F.to_timestamp("fecha_modificacion").alias("fecha_modificacion"),
+)
+ordenes = quitar_duplicados(ordenes, ["numero_orden"], "fecha_modificacion")
+
+guardar(ordenes, "sap.ordenes_mantenimiento", bronze.count())
+display(ordenes.groupBy("estado").count())
+
+# %% [markdown]
+# ## 5. Pruebas de pozo (OpenWell)
+#
+# | Limpieza | Filtro |
+# |---|---|
+# | Llave del pozo, números, el BSW se **recalcula** con agua / (agua + aceite) | Solo pruebas con aceite medido |
+
+# %%
+bronze = leer("openwell/pruebas_pozo.csv")
+
+pruebas = bronze.select(
+    F.trim("id_prueba").alias("id_prueba"),
+    clave_pozo("pozo").alias("clave_pozo"),
+    fecha("fecha_prueba").alias("fecha_prueba"),
+    numero("aceite_bpd").alias("aceite_bpd"),
+    numero("agua_bpd").alias("agua_bpd"),
+    numero("presion_cabeza_psi").alias("presion_cabeza_psi"),
+)
+pruebas = pruebas.where("aceite_bpd IS NOT NULL")
+pruebas = pruebas.withColumn("bsw_pct", F.round(100 * F.col("agua_bpd") / (F.col("agua_bpd") + F.col("aceite_bpd")), 2))
+
+guardar(pruebas, "openwell.pruebas_pozo", bronze.count())
+display(pruebas.limit(5))
+
+# %% [markdown]
+# ## 6. Producción diaria
+#
+# | Limpieza | Filtro |
+# |---|---|
+# | Llave del pozo (`MORICHAL 1`, ` mor-1 ` → `MOR-001`), coma decimal, BSW | Solo pozos que existen y con fecha · sin volúmenes negativos · sin duplicados (gana la última fila del archivo) |
+
+# %%
+bronze = leer("produccion/produccion_diaria.csv")
+
+produccion = bronze.select(
+    clave_pozo("pozo").alias("clave_pozo"),
+    fecha("fecha").alias("fecha"),
+    numero("aceite_bbl").alias("aceite_bbl"),
+    numero("agua_bbl").alias("agua_bbl"),
+    numero("gas_kpc").alias("gas_kpc"),
+    numero("horas_operacion").alias("horas_operacion"),
+    "_fila",
+)
+produccion = produccion.join(pozos.select("clave_pozo"), "clave_pozo", "left_semi")
+produccion = produccion.where("fecha IS NOT NULL AND aceite_bbl >= 0 AND agua_bbl >= 0")
+produccion = quitar_duplicados(produccion, ["clave_pozo", "fecha"], "_fila")
+produccion = produccion.withColumn("bsw_pct", F.round(100 * F.col("agua_bbl") / (F.col("agua_bbl") + F.col("aceite_bbl")), 2))
+
+guardar(produccion, "produccion.produccion_diaria", bronze.count())
+display(produccion.groupBy("fecha").agg(F.count("*").alias("pozos"), F.round(F.sum("aceite_bbl")).alias("aceite_bbl"))
+        .orderBy("fecha"))
+
+# %% [markdown]
+# ## 7. Resumen
+# Cuántas filas llegaron de Bronze y cuántas quedaron en Silver después de limpiar.
+
+# %%
+display(spark.createDataFrame(resumen, "tabla string, filas_bronze long, filas_silver long, descartadas long"))

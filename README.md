@@ -27,7 +27,7 @@ flowchart LR
 |---|---|---|
 | [1 · Preparación del ambiente](01-Preparacion-del-ambiente/README.md) | Workspace, carpetas, lakehouses, warehouse, tabla de control, log de auditoría y archivos fuente | ✅ Disponible |
 | [2 · Extracción](02-Extraccion/README.md) | Pipeline que lee la tabla de control, copia de la fuente a Bronze y registra cada copia en el log | ✅ Disponible |
-| [3 · Transformación](03-Transformacion/README.md) | Notebook Bronze → Silver (validación, limpieza y cuarentena) y pipeline con aviso por correo | ✅ Disponible |
+| [3 · Transformación](03-Transformacion/README.md) | Notebook Bronze → Silver (limpieza y validación) y pipeline con aviso por correo | ✅ Disponible |
 | [4 · Carga](04-Carga/README.md) | Notebook Silver → Gold (modelo dimensional y regla de negocio) y pipeline con aviso por correo | ✅ Disponible |
 | [5 · Orquestación](05-Orquestacion/README.md) | Pipeline que ejecuta extracción, transformación y carga en orden | ✅ Disponible |
 

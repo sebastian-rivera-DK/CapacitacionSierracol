@@ -44,8 +44,8 @@ flowchart LR
 |---|---|---|
 | Bronze | Lakehouse `Bronze` → `Files/bronze` | Los 5 CSV |
 | Log de extracción | `WH_ControlCargas` → `ControlCargas.TablaLogAuditoria` | 5 filas nuevas con `Succeeded` |
-| Silver | Lakehouse `Silver` → `Tables` | Esquemas `openwell`, `sap`, `produccion`, `calidad` |
-| Gold | Lakehouse `Gold` → `Tables` | 3 dimensiones y 2 hechos |
+| Silver | Lakehouse `Silver` → `Tables` | Esquemas `openwell`, `sap` y `produccion` |
+| Gold | Lakehouse `Gold` → `Tables` | 3 dimensiones y 3 hechos |
 
 ## Paso 4 · Programar la ejecución (opcional)
 
@@ -55,6 +55,6 @@ Para que el flujo corra solo, en `Pipeline_Orquestador` haz clic en **Schedule**
 
 ---
 
-✅ **Al terminar esta parte tienes:** el flujo completo **Source → Bronze → Silver → Gold**, dirigido por la tabla de control, con log de auditoría, cuarentena, avisos por correo y una sola ejecución que lo coordina todo.
+✅ **Al terminar esta parte tienes:** el flujo completo **Source → Bronze → Silver → Gold**, dirigido por la tabla de control, con log de auditoría, avisos por correo y una sola ejecución que lo coordina todo.
 
 ⬅️ [Parte 4 · Carga](../04-Carga/README.md) · [Volver al inicio](../README.md)
